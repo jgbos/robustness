@@ -66,7 +66,7 @@ def make_and_restore_model(*_, arch, dataset, resume_path=None,
     elif attacker == 'fgsm':
         attacker = AttackerFGSM(classifier_model, dataset)
 
-    model = AttackerModel(classifier_model, dataset)
+    model = AttackerModel(classifier_model, dataset, attacker)
 
     # optionally resume from a checkpoint
     checkpoint = None

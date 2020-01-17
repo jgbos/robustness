@@ -349,7 +349,8 @@ class AttackerFGSM(ch.nn.Module):
             # Fast Adversaril with FGSM
             δ = 2 * (ch.rand_like(x) - 0.5) * eps
             x = x.clone().detach().requires_grad_(True)
-            losses, _ = calc_loss(step.to_image(x + δ), target)
+            xd = x + δ
+            losses, _ = calc_loss(step.to_image(xd), target)
             assert losses.shape[0] == x.shape[0], \
                     'Shape of losses must match input!'
 
@@ -357,15 +358,15 @@ class AttackerFGSM(ch.nn.Module):
 
             if step.use_grad:
                 if est_grad is None:
-                    grad, = ch.autograd.grad(m * loss, [x])
+                    grad, = ch.autograd.grad(m * loss, [xd])
                 else:
                     f = lambda _x, _y: m * calc_loss(step.to_image(_x), _y)[0]
-                    grad = helpers.calc_est_grad(f, x, target, *est_grad)
+                    grad = helpers.calc_est_grad(f, xd, target, *est_grad)
             else:
                 grad = None
 
             with ch.no_grad():
-                x = δ + step.step(x, grad)
+                x = x + δ + step.step(xd, grad)
                 x = step.project(x)
 
             # Save computation (don't compute last loss) if not use_best
