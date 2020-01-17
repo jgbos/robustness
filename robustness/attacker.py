@@ -3,7 +3,7 @@
 ignored.**
 
 This module houses the :class:`robustness.attacker.Attacker` and
-:class:`robustness.attacker.AttackerModel` classes. 
+:class:`robustness.attacker.AttackerModel` classes.
 
 :class:`~robustness.attacker.Attacker` is an internal class that should not be
 imported/called from outside the library.
@@ -141,7 +141,7 @@ class Attacker(ch.nn.Module):
         # Initialize step class and attacker criterion
         criterion = ch.nn.CrossEntropyLoss(reduction='none').cuda()
         step_class = STEPS[constraint] if isinstance(constraint, str) else constraint
-        step = step_class(eps=eps, orig_input=orig_input, step_size=step_size) 
+        step = step_class(eps=eps, orig_input=orig_input, step_size=step_size)
 
         def calc_loss(inp, target):
             '''
@@ -209,7 +209,7 @@ class Attacker(ch.nn.Module):
                     if do_tqdm: iterator.set_description("Current loss: {l}".format(l=loss))
 
             # Save computation (don't compute last loss) if not use_best
-            if not use_best: 
+            if not use_best:
                 ret = x.clone().detach()
                 return step.to_image(ret) if return_image else ret
 
@@ -325,7 +325,7 @@ class AttackerFGSM(ch.nn.Module):
         # Initialize step class and attacker criterion
         criterion = ch.nn.CrossEntropyLoss(reduction='none').cuda()
         step_class = STEPS[constraint] if isinstance(constraint, str) else constraint
-        step = step_class(eps=eps, orig_input=orig_input, step_size=step_size) 
+        step = step_class(eps=eps, orig_input=orig_input, step_size=step_size)
 
         def calc_loss(inp, target):
             '''
@@ -346,8 +346,8 @@ class AttackerFGSM(ch.nn.Module):
             if random_start:
                 x = step.random_perturb(x)
 
-            # FGSM Attack
-            δ = 2 * (ch.rand_like(x) - 0.5) * self.eps
+            # Fast Adversaril with FGSM
+            δ = 2 * (ch.rand_like(x) - 0.5) * eps
             x = x.clone().detach().requires_grad_(True)
             losses, _ = calc_loss(step.to_image(x + δ), target)
             assert losses.shape[0] == x.shape[0], \
