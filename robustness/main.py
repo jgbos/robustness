@@ -47,7 +47,7 @@ def main(args, store=None):
 
     # MAKE MODEL
     model, checkpoint = make_and_restore_model(arch=args.arch,
-            dataset=dataset, resume_path=args.resume)
+            dataset=dataset, resume_path=args.resume, attacker=args.attacker)
     if 'module' in dir(model): model = model.module
 
     print(args)

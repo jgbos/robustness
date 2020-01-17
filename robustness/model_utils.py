@@ -2,7 +2,7 @@ import torch as ch
 import dill
 import os
 from .tools import helpers, constants
-from .attacker import AttackerModel
+from .attacker import AttackerModel, Attacker, AttackerFGSM
 
 class FeatureExtractor(ch.nn.Module):
     '''
@@ -42,7 +42,7 @@ class FeatureExtractor(ch.nn.Module):
         return [out] + activs
 
 def make_and_restore_model(*_, arch, dataset, resume_path=None,
-         parallel=True, pytorch_pretrained=False):
+         parallel=True, pytorch_pretrained=False, attacker='pgd'):
     """
     Makes a model and (optionally) restores it from a checkpoint.
 
@@ -51,15 +51,20 @@ def make_and_restore_model(*_, arch, dataset, resume_path=None,
             torch.nn.Module instance with the classifier
         dataset (Dataset class [see datasets.py])
         resume_path (str): optional path to checkpoint
-        parallel (bool): if True, wrap the model in a DataParallel 
+        parallel (bool): if True, wrap the model in a DataParallel
             (default True, recommended)
-        pytorch_pretrained (bool): if True, try to load a standard-trained 
+        pytorch_pretrained (bool): if True, try to load a standard-trained
             checkpoint from the torchvision library (throw error if failed)
-    Returns: 
+    Returns:
         A tuple consisting of the model (possibly loaded with checkpoint), and the checkpoint itself
     """
     classifier_model = dataset.get_model(arch, pytorch_pretrained) if \
                             isinstance(arch, str) else arch
+
+    if attacker is None or attacker == 'pgd':
+        attacker = Attacker(classifier_model, dataset)
+    elif attacker == 'fgsm':
+        attacker = AttackerFGSM(classifier_model, dataset)
 
     model = AttackerModel(classifier_model, dataset)
 
@@ -69,7 +74,7 @@ def make_and_restore_model(*_, arch, dataset, resume_path=None,
         if os.path.isfile(resume_path):
             print("=> loading checkpoint '{}'".format(resume_path))
             checkpoint = ch.load(resume_path, pickle_module=dill)
-            
+
             # Makes us able to load models saved with legacy versions
             state_dict_path = 'model'
             if not ('model' in checkpoint):
