@@ -366,7 +366,8 @@ class AttackerFGSM(ch.nn.Module):
                 grad = None
 
             with ch.no_grad():
-                x = x + δ + step.step(xd, grad)
+                δ = step.step(δ, grad)
+                x = x + δ
                 x = step.project(x)
 
             # Save computation (don't compute last loss) if not use_best
