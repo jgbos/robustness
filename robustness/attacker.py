@@ -347,10 +347,9 @@ class AttackerFGSM(ch.nn.Module):
                 x = step.random_perturb(x)
 
             # Fast Adversaril with FGSM
-            δ = 2 * (ch.rand_like(x) - 0.5) * eps
-            x = x.clone().detach().requires_grad_(True)
-            xd = x + δ
-            losses, _ = calc_loss(step.to_image(xd), target)
+            x = x.clone().detach()
+            δ = (2 * (ch.rand_like(x) - 0.5) * eps).requires_grad_(True)
+            losses, _ = calc_loss(step.to_image(x + δ), target)
             assert losses.shape[0] == x.shape[0], \
                     'Shape of losses must match input!'
 
@@ -358,7 +357,7 @@ class AttackerFGSM(ch.nn.Module):
 
             if step.use_grad:
                 if est_grad is None:
-                    grad, = ch.autograd.grad(m * loss, [xd])
+                    grad, = ch.autograd.grad(m * loss, [δ])
                 else:
                     f = lambda _x, _y: m * calc_loss(step.to_image(_x), _y)[0]
                     grad = helpers.calc_est_grad(f, xd, target, *est_grad)
@@ -366,9 +365,8 @@ class AttackerFGSM(ch.nn.Module):
                 grad = None
 
             with ch.no_grad():
-                δ = step.step(δ, grad)
-                x = x + δ
-                x = step.project(x)
+                δ = step.step(δ, grad) # δ = δ + α ∇_δ (f(x + δ))
+                x = step.project(x + δ)
 
             # Save computation (don't compute last loss) if not use_best
             ret = x.clone().detach()
@@ -421,7 +419,8 @@ class AttackerModel(ch.nn.Module):
         super(AttackerModel, self).__init__()
         self.normalizer = helpers.InputNormalize(dataset.mean, dataset.std)
         self.model = model
-        self.attacker = Attacker(model, dataset) if attacker is None else attacker
+        self.attacker_pgd = Attacker(model, dataset)
+        self.attacker = self.attacker_pgd if attacker is None else attacker
 
     def forward(self, inp, target=None, make_adv=False, with_latent=False,
                 fake_relu=False, no_relu=False, with_image=True, **attacker_kwargs):
@@ -459,9 +458,11 @@ class AttackerModel(ch.nn.Module):
             assert target is not None
             prev_training = bool(self.training)
             self.eval()
-            adv = self.attacker(inp, target, **attacker_kwargs)
             if prev_training:
+                adv = self.attacker(inp, target, **attacker_kwargs)
                 self.train()
+            else:
+                adv = self.attacker_pgd(inp, target, **attacker_kwargs)
 
             inp = adv
 
