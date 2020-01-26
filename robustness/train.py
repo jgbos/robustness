@@ -1,4 +1,5 @@
 import torch as ch
+import torch
 import numpy as np
 import torch.nn as nn
 from torch.optim import SGD, lr_scheduler
@@ -9,7 +10,7 @@ from .tools import helpers
 from .tools.helpers import AverageMeter, calc_fadein_eps, \
         save_checkpoint, ckpt_at_epoch, has_attr
 from .tools import constants as consts
-import dill 
+import dill
 import time
 
 import os
@@ -65,7 +66,7 @@ def make_optimizer_and_schedule(args, model, checkpoint, params):
         checkpoint (dict) : a loaded checkpoint saved by this library and loaded
             with `ch.load`
         params (list|None) : a list of parameters that should be updatable, all
-            other params will not update. If ``None``, update all params 
+            other params will not update. If ``None``, update all params
 
     Returns:
         An optimizer (ch.nn.optim.Optimizer) and a scheduler
@@ -91,7 +92,7 @@ def make_optimizer_and_schedule(args, model, checkpoint, params):
                 if ep > milestone: return lr/args.lr
             return args.lr
         schedule = lr_scheduler.LambdaLR(optimizer, lr_func)
-    
+
     # Fast-forward the optimizer and the scheduler if resuming
     if checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -111,7 +112,7 @@ def eval_model(args, model, loader, store):
     Evaluate a model for standard (and optionally adversarial) accuracy.
 
     Args:
-        args (object) : A list of arguments---should be a python object 
+        args (object) : A list of arguments---should be a python object
             implementing ``getattr()`` and ``setattr()``.
         model (AttackerModel) : model to evaluate
         loader (iterable) : a dataloader serving `(input, label)` batches from
@@ -121,20 +122,20 @@ def eval_model(args, model, loader, store):
     check_required_args(args, eval_only=True)
     start_time = time.time()
 
-    if store is not None: 
+    if store is not None:
         store.add_table(consts.LOGS_TABLE, consts.LOGS_SCHEMA)
     writer = store.tensorboard if store else None
 
     model = ch.nn.DataParallel(model)
 
-    prec1, nat_loss = _model_loop(args, 'val', loader, 
+    prec1, nat_loss = _model_loop(args, 'val', loader,
                                         model, None, 0, False, writer)
 
     adv_prec1, adv_loss = float('nan'), float('nan')
-    if args.adv_eval: 
+    if args.adv_eval:
         args.eps = eval(str(args.eps)) if has_attr(args, 'eps') else None
         args.attack_lr = eval(str(args.attack_lr)) if has_attr(args, 'attack_lr') else None
-        adv_prec1, adv_loss = _model_loop(args, 'val', loader, 
+        adv_prec1, adv_loss = _model_loop(args, 'val', loader,
                                         model, None, 0, True, writer)
     log_info = {
         'epoch':0,
@@ -151,22 +152,22 @@ def eval_model(args, model, loader, store):
     if store: store[consts.LOGS_TABLE].append_row(log_info)
     return log_info
 
-def train_model(args, model, loaders, *, checkpoint=None, 
+def train_model(args, model, loaders, *, checkpoint=None,
                 store=None, update_params=None):
     """
-    Main function for training a model. 
+    Main function for training a model.
 
     Args:
         args (object) : A python object for arguments, implementing
             ``getattr()`` and ``setattr()`` and having the following
-            attributes. See :attr:`robustness.defaults.TRAINING_ARGS` for a 
+            attributes. See :attr:`robustness.defaults.TRAINING_ARGS` for a
             list of arguments, and you can use
             :meth:`robustness.defaults.check_and_fill_args` to make sure that
             all required arguments are filled and to fill missing args with
             reasonable defaults:
 
             adv_train (int or bool, *required*)
-                if 1/True, adversarially train, otherwise if 0/False do 
+                if 1/True, adversarially train, otherwise if 0/False do
                 standard training
             epochs (int, *required*)
                 number of epochs to train for
@@ -212,7 +213,7 @@ def train_model(args, model, loaders, *, checkpoint=None,
                 loss function takes in `model, input, target` and should return
                 a vector representing the loss for each element of the batch, as
                 well as the classifier output.
-            regularizer (function, optional) 
+            regularizer (function, optional)
                 If given, this function of `model, input, target` returns a
                 (scalar) that is added on to the training loss without being
                 subject to adversarial attack
@@ -229,7 +230,7 @@ def train_model(args, model, loaders, *, checkpoint=None,
 
         model (AttackerModel) : the model to train.
         loaders (tuple[iterable]) : `tuple` of data loaders of the form
-            `(train_loader, val_loader)` 
+            `(train_loader, val_loader)`
         checkpoint (dict) : a loaded checkpoint previously saved by this library
             (if resuming from checkpoint)
         store (cox.Store) : a cox store for logging training progress
@@ -239,10 +240,10 @@ def train_model(args, model, loaders, *, checkpoint=None,
     """
     # Logging setup
     writer = store.tensorboard if store else None
-    if store is not None: 
+    if store is not None:
         store.add_table(consts.LOGS_TABLE, consts.LOGS_SCHEMA)
         store.add_table(consts.CKPTS_TABLE, consts.CKPTS_SCHEMA)
-    
+
     # Reformat and read arguments
     check_required_args(args) # Argument sanity check
     args.eps = eval(str(args.eps)) if has_attr(args, 'eps') else None
@@ -266,7 +267,7 @@ def train_model(args, model, loaders, *, checkpoint=None,
 
     for epoch in range(start_epoch, args.epochs):
         # train for one epoch
-        train_prec1, train_loss = _model_loop(args, 'train', train_loader, 
+        train_prec1, train_loss = _model_loop(args, 'train', train_loader,
                 model, opt, epoch, args.adv_train, writer)
         last_epoch = (epoch == (args.epochs - 1))
 
@@ -290,7 +291,7 @@ def train_model(args, model, loaders, *, checkpoint=None,
         if should_log or last_epoch or should_save_ckpt:
             # log + get best
             with ch.no_grad():
-                prec1, nat_loss = _model_loop(args, 'val', val_loader, model, 
+                prec1, nat_loss = _model_loop(args, 'val', val_loader, model,
                         None, epoch, False, writer)
 
             # loader, model, epoch, input_adv_exs
@@ -343,7 +344,7 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
         args (object) : an arguments object (see
             :meth:`~robustness.train.train_model` for list of arguments
         loop_type ('train' or 'val') : whether we are training or evaluating
-        loader (iterable) : an iterable loader of the form 
+        loader (iterable) : an iterable loader of the form
             `(image_batch, label_batch)`
         model (AttackerModel) : model to train/evaluate
         opt (ch.optim.Optimizer) : optimizer to use (ignored for evaluation)
@@ -368,6 +369,13 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
 
     # switch to train/eval mode depending
     model = model.train() if is_train else model.eval()
+    if args.jem_train:
+        sample_q = get_sample_q(10, args.sgld_lr,
+                                    args.sgld_std,
+                                    args.sgld_steps,
+                                    args.sgld_reinit_freq)
+        replay_buffer = None
+
 
     # If adv training (or evaling), set eps and random_restarts appropriately
     if adv:
@@ -379,7 +387,7 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
     has_custom_train_loss = has_attr(args, 'custom_train_loss')
     train_criterion = args.custom_train_loss if has_custom_train_loss \
             else ch.nn.CrossEntropyLoss()
-    
+
     has_custom_adv_loss = has_attr(args, 'custom_adv_loss')
     adv_criterion = args.custom_adv_loss if has_custom_adv_loss else None
 
@@ -424,6 +432,24 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
         except:
             pass
 
+        if args.jem_train:
+            ### maximize log p(x)
+            if replay_buffer is None:
+                replay_buffer = -1 + 2 * torch.rand_like(inp)
+            x_q = sample_q(model, replay_buffer)  # sample from log-sumexp
+
+            # output for unlabeled data
+            fp_all = model(inp.clone(), make_adv=False)[0]
+
+            # output for our MCMC sampler
+            fq_all = model(x_q, make_adv=False)[0]
+
+            # log p(x) loss
+            fp = fp_all.mean()
+            fq = fq_all.mean()
+            l_p_x = -(fp - fq)
+            loss = loss + args.jem_weight * l_p_x
+
         reg_term = 0.0
         if has_attr(args, "regularizer"):
             reg_term =  args.regularizer(model, inp, target)
@@ -444,7 +470,7 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
         # ITERATOR
         desc = ('{2} Epoch:{0} | Loss {loss.avg:.4f} | '
                 '{1}1 {top1_acc:.3f} | {1}5 {top5_acc:.3f} | '
-                'Reg term: {reg} ||'.format( epoch, prec, loop_msg, 
+                'Reg term: {reg} ||'.format( epoch, prec, loop_msg,
                 loss=losses, top1_acc=top1_acc, top5_acc=top5_acc, reg=reg_term))
 
         # USER-DEFINED HOOK
@@ -464,3 +490,49 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
 
     return top1.avg, losses.avg
 
+
+def get_sample_q(num_classes, sgld_lr, sgld_std, n_steps, reinit_freq):
+    def sample_p_0(replay_buffer):
+        dtype, device = replay_buffer.dtype, replay_buffer.device
+        bs = len(replay_buffer)
+        buffer_size = bs
+        inds = ch.randint(0, buffer_size, (bs,), dtype=torch.long, device=device)
+
+        buffer_samples = replay_buffer[inds]
+        random_samples = -1 + 2 * ch.rand_like(replay_buffer)
+
+        choose_random = ch.rand(bs) < reinit_freq
+        samples = torch.zeros_like(buffer_samples)
+        samples[choose_random] = random_samples[choose_random]
+        samples[~choose_random] = buffer_samples[~choose_random]
+
+        return samples, inds
+
+    def sample_q(model, replay_buffer):
+        """this func takes in replay_buffer now so we have the option to sample from
+        scratch (i.e. replay_buffer==[]).  See test_wrn_ebm.py for example.
+        """
+
+        # TODO: check if training
+        is_train = model.training == True
+        model.eval()
+
+        # get batch size
+        bs = replay_buffer.shape[0]
+        # generate initial samples and buffer inds of those samples (if buffer is used)
+        xk, buffer_inds = sample_p_0(replay_buffer)
+        xk.requires_grad_(True)
+
+        # sgld
+        for k in range(n_steps):
+            loss = model(xk, make_adv=False)[0].sum()
+            f_prime = ch.autograd.grad(loss, [xk], retain_graph=True)[0]
+            xk = xk + sgld_lr * f_prime + sgld_std * ch.randn_like(xk)
+        model.train() if is_train else None
+        final_samples = xk.detach()
+
+        # update replay buffer
+        if len(replay_buffer) > 0:
+            replay_buffer[buffer_inds] = final_samples
+        return final_samples
+    return sample_q

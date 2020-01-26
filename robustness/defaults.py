@@ -62,10 +62,18 @@ TRAINING_ARGS = [
     ['step-lr', int, 'number of steps between 10x LR drops', BY_DATASET],
     ['custom-schedule', str, 'LR sched (format: [(epoch, LR),...])', None],
     ['adv-train', [0, 1], 'whether to train adversarially', REQ],
-    ['adv-eval', [0, 1], 'whether to adversarially evaluate', None], 
+    ['adv-eval', [0, 1], 'whether to adversarially evaluate', None],
     ['log-iters', int, 'how frequently (in epochs) to log', 5],
     ['save-ckpt-iters', int, 'how frequently (epochs) to save \
-            (-1 for none, only saves best and last)', -1]
+            (-1 for none, only saves best and last)', -1],
+
+    ['jem-train', [0, 1], 'whether to train with JEM', 0],
+    ['jem_weight', float, 'weight for JEM loss', 1.0],
+    ['sgld_lr', float, 'sgld learning rate for training', 1.0],
+    ['sgld_std', float, 'sgld standard dev for training', 1e-2],
+    ['sgld_steps', float, 'sgld steps for training', 20],
+    ['sgld_reinit_freq', float, 'sgld steps for training', 0.05],
+
 ]
 """
 Arguments essential for the `train_model` function.
@@ -137,7 +145,7 @@ def add_args_to_parser(arg_list, parser):
         The original parser, now with the arguments added in.
     """
     for arg_name, arg_type, arg_help, arg_default in arg_list:
-        has_choices = (type(arg_type) == list) 
+        has_choices = (type(arg_type) == list)
         kwargs = {
             'type': type(arg_type[0]) if has_choices else arg_type,
             'help': f"{arg_help} (default: {arg_default})"
@@ -168,7 +176,7 @@ def check_and_fill_args(args, arg_list, ds_class):
         if arg_default == REQ: raise ValueError(f"{arg_name} required")
         elif arg_default == BY_DATASET:
             setattr(args, name, TRAINING_DEFAULTS[ds_class][name])
-        elif arg_default is not None: 
+        elif arg_default is not None:
             setattr(args, name, arg_default)
     return args
 
