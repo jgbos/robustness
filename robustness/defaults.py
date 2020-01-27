@@ -68,11 +68,12 @@ TRAINING_ARGS = [
             (-1 for none, only saves best and last)', -1],
 
     ['jem-train', [0, 1], 'whether to train with JEM', 0],
-    ['jem_weight', float, 'weight for JEM loss', 1.0],
-    ['sgld_lr', float, 'sgld learning rate for training', 1.0],
-    ['sgld_std', float, 'sgld standard dev for training', 1e-2],
-    ['sgld_steps', float, 'sgld steps for training', 20],
-    ['sgld_reinit_freq', float, 'sgld steps for training', 0.05],
+    ['jem-weight', float, 'weight for JEM loss', 1.0],
+    ['sgld-lr', float, 'sgld learning rate for training', 1.0],
+    ['sgld-std', float, 'sgld standard dev for training', 0.03],
+    ['sgld-steps', int, 'sgld steps for training', 20],
+    ['sgld-buffer-size', int, 'sgld steps for training', 10000],
+    ['sgld-reinit-freq', float, 'sgld steps for training', 0.05],
 
 ]
 """

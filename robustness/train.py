@@ -264,11 +264,19 @@ def train_model(args, model, loaders, *, checkpoint=None,
 
     # Timestamp for training start time
     start_time = time.time()
+    jem_sampler = None
+    if args.jem_train:
+        jem_sampler = SGLD(args.batch_size,
+                        args.sgld_lr,
+                        args.sgld_std,
+                        args.sgld_steps,
+                        args.sgld_buffer_size,
+                        args.sgld_reinit_freq)
 
     for epoch in range(start_epoch, args.epochs):
         # train for one epoch
         train_prec1, train_loss = _model_loop(args, 'train', train_loader,
-                model, opt, epoch, args.adv_train, writer)
+                model, opt, epoch, args.adv_train, writer, jem_sampler)
         last_epoch = (epoch == (args.epochs - 1))
 
         # evaluate on validation set
@@ -333,7 +341,7 @@ def train_model(args, model, loaders, *, checkpoint=None,
 
     return model
 
-def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
+def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer, jem_sampler=None):
     """
     *Internal function* (refer to the train_model and eval_model functions for
     how to train and evaluate models).
@@ -369,13 +377,6 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
 
     # switch to train/eval mode depending
     model = model.train() if is_train else model.eval()
-    if args.jem_train:
-        sample_q = get_sample_q(10, args.sgld_lr,
-                                    args.sgld_std,
-                                    args.sgld_steps,
-                                    args.sgld_reinit_freq)
-        replay_buffer = None
-
 
     # If adv training (or evaling), set eps and random_restarts appropriately
     if adv:
@@ -432,21 +433,18 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
         except:
             pass
 
-        if args.jem_train:
+        if args.jem_train and loop_type == 'train':
             ### maximize log p(x)
-            if replay_buffer is None:
-                replay_buffer = -1 + 2 * torch.rand_like(inp)
-            x_q = sample_q(model, replay_buffer)  # sample from log-sumexp
-
-            # output for unlabeled data
-            fp_all = model(inp.clone(), make_adv=False)[0]
+            if jem_sampler.replay_buffer is None:
+                jem_sampler.init_replay_buffer(inp)
+            x_q = jem_sampler(model) # sample from log-sumexp
 
             # output for our MCMC sampler
-            fq_all = model(x_q, make_adv=False)[0]
+            out_q, _ = model(x_q, make_adv=False)
 
-            # log p(x) loss
-            fp = fp_all.mean()
-            fq = fq_all.mean()
+            # log p(x) loss (logsumexp of input - logsumexp of sample)
+            fp = model_logits.logsumexp(1).mean()
+            fq = out_q.logsumexp(1).mean()
             l_p_x = -(fp - fq)
             loss = loss + args.jem_weight * l_p_x
 
@@ -491,48 +489,93 @@ def _model_loop(args, loop_type, loader, model, opt, epoch, adv, writer):
     return top1.avg, losses.avg
 
 
-def get_sample_q(num_classes, sgld_lr, sgld_std, n_steps, reinit_freq):
-    def sample_p_0(replay_buffer):
-        dtype, device = replay_buffer.dtype, replay_buffer.device
-        bs = len(replay_buffer)
-        buffer_size = bs
-        inds = ch.randint(0, buffer_size, (bs,), dtype=torch.long, device=device)
+# def get_sample_q(batch_size, sgld_lr, sgld_std, n_steps, reinit_freq):
+#     def sample_p_0(replay_buffer):
+#         dtype, device = replay_buffer.dtype, replay_buffer.device
+#         buffer_size = len(replay_buffer)
+#         inds = ch.randint(0, buffer_size, (batch_size,), dtype=torch.long, device=device)
 
-        buffer_samples = replay_buffer[inds]
-        random_samples = -1 + 2 * ch.rand_like(replay_buffer)
+#         buffer_samples = replay_buffer[inds]
+#         random_samples = buffer_samples.new(*buffer_samples.shape).uniform_()
 
-        choose_random = ch.rand(bs) < reinit_freq
+#         choose_random = ch.rand(batch_size) < reinit_freq
+#         samples = torch.zeros_like(buffer_samples)
+#         samples[choose_random] = random_samples[choose_random]
+#         samples[~choose_random] = buffer_samples[~choose_random]
+
+#         return samples, inds
+
+#     def sample_q(model, replay_buffer):
+#         is_train = model.training == True
+#         model.eval()
+
+#         # generate initial samples and buffer inds of those samples (if buffer is used)
+#         xk, buffer_inds = sample_p_0(replay_buffer)
+#         xk.requires_grad_(True)
+
+#         # sgld
+#         for k in range(n_steps):
+#             loss = model(xk, make_adv=False)[0].logsumexp(1).sum()
+#             dE_dx = ch.autograd.grad(loss, [xk], retain_graph=True)[0]
+#             xk = xk + sgld_lr * dE_dx + sgld_std * ch.randn_like(xk)
+#         model.train() if is_train else None
+#         final_samples = xk.detach()
+
+#         # update replay buffer
+#         if len(replay_buffer) > 0:
+#             replay_buffer[buffer_inds] = final_samples
+#         return final_samples
+#     return sample_q
+
+
+class SGLD(object):
+    def __init__(self, batch_size, sgld_lr, sgld_std, n_steps, buffer_size, reinit_freq):
+        self.batch_size = batch_size
+        self.sgld_lr = sgld_lr
+        self.sgld_std = sgld_std
+        self.steps = n_steps
+        self.reinit_freq = reinit_freq
+        self.buffer_size = buffer_size
+        self.replay_buffer = None
+
+    def init_replay_buffer(self, x):
+        sh = (self.buffer_size,) + x.shape[1:]
+        self.replay_buffer = x.new(*sh).uniform_(0, 1)
+
+    def sample_p0(self):
+        # Sample from replay buffer
+        device = self.replay_buffer.device
+        buffer_size = len(self.replay_buffer)
+        inds = ch.randint(0, buffer_size, (self.batch_size,), dtype=torch.long, device=device)
+
+        buffer_samples = self.replay_buffer[inds]
+        random_samples = buffer_samples.new(*buffer_samples.shape).uniform_()
+        choose_random = ch.rand(self.batch_size) < self.reinit_freq
+
         samples = torch.zeros_like(buffer_samples)
         samples[choose_random] = random_samples[choose_random]
         samples[~choose_random] = buffer_samples[~choose_random]
-
         return samples, inds
 
-    def sample_q(model, replay_buffer):
-        """this func takes in replay_buffer now so we have the option to sample from
-        scratch (i.e. replay_buffer==[]).  See test_wrn_ebm.py for example.
-        """
+    def __call__(self, model):
+        # Execute SGLD
 
-        # TODO: check if training
         is_train = model.training == True
         model.eval()
 
-        # get batch size
-        bs = replay_buffer.shape[0]
         # generate initial samples and buffer inds of those samples (if buffer is used)
-        xk, buffer_inds = sample_p_0(replay_buffer)
+        xk, buffer_inds = self.sample_p0()
         xk.requires_grad_(True)
 
         # sgld
-        for k in range(n_steps):
-            loss = model(xk, make_adv=False)[0].sum()
-            f_prime = ch.autograd.grad(loss, [xk], retain_graph=True)[0]
-            xk = xk + sgld_lr * f_prime + sgld_std * ch.randn_like(xk)
+        for k in range(self.steps):
+            loss = model(xk, make_adv=False)[0].logsumexp(1).sum()
+            dE_dx = ch.autograd.grad(loss, [xk], retain_graph=True)[0]
+            xk = xk + self.sgld_lr * dE_dx + self.sgld_std * ch.randn_like(xk)
         model.train() if is_train else None
         final_samples = xk.detach()
 
         # update replay buffer
-        if len(replay_buffer) > 0:
-            replay_buffer[buffer_inds] = final_samples
+        if len(self.replay_buffer) > 0:
+            self.replay_buffer[buffer_inds] = final_samples
         return final_samples
-    return sample_q
